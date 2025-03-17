@@ -1,0 +1,9 @@
+{
+  "name": "gold-rates-extractor",
+  "version": "1.0.0",
+  "description": "Extracts gold rates from websites",
+  "main": "goldExtractor.js",
+  "dependencies": {
+    "puppeteer": "^19.7.5"
+  }
+}
