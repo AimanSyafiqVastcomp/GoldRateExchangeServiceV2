@@ -277,11 +277,11 @@ namespace GoldRatesExtractor
                     LogInfo($"Using WebsiteOption {websiteOption} from app.config");
                 }
 
-                // Get the extraction interval from app.config (in minutes)
+                // Get the extraction interval from app.config (in seconds)
                 string intervalStr = ConfigurationManager.AppSettings["ExtractionIntervalSeconds"];
                 if (!int.TryParse(intervalStr, out extractionIntervalSeconds) || extractionIntervalSeconds <= 0)
                 {
-                    // Default to 60 minutes if parsing fails or value is invalid
+                    // Default to 60 seconds if parsing fails or value is invalid
                     extractionIntervalSeconds = 60;
                     LogInfo("ExtractionIntervalSeconds not specified or invalid in app.config. Defaulting to 60 minutes");
                 }
