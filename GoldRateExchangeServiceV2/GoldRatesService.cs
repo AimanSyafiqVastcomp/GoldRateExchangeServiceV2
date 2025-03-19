@@ -25,7 +25,7 @@ namespace GoldRatesExtractor
         private string errorLogFilePath;
         private Timer extractionTimer;
         private int websiteOption;
-        private int extractionIntervalMinutes;
+        private int extractionIntervalSeconds;
         private string nodeJsPath;
         private string scriptPath;
         private int initialDelayMilliseconds;
@@ -192,7 +192,7 @@ namespace GoldRatesExtractor
         private void SetupTimer()
         {
             extractionTimer = new Timer();
-            extractionTimer.Interval = extractionIntervalMinutes * 1000; // Convert seconds to milliseconds
+            extractionTimer.Interval = extractionIntervalSeconds * 1000; // Convert seconds to milliseconds
             extractionTimer.Elapsed += async (sender, e) =>
             {
                 extractionTimer.Enabled = false; // Disable timer while running extraction
@@ -212,7 +212,7 @@ namespace GoldRatesExtractor
             };
 
             extractionTimer.Start();
-            LogInfo($"Timer started. Will extract gold rates every {extractionIntervalMinutes} minutes.");
+            LogInfo($"Timer started. Will extract gold rates every {extractionIntervalSeconds} minutes.");
         }
 
         protected override void OnStop()
@@ -278,16 +278,16 @@ namespace GoldRatesExtractor
                 }
 
                 // Get the extraction interval from app.config (in minutes)
-                string intervalStr = ConfigurationManager.AppSettings["ExtractionIntervalMinutes"];
-                if (!int.TryParse(intervalStr, out extractionIntervalMinutes) || extractionIntervalMinutes <= 0)
+                string intervalStr = ConfigurationManager.AppSettings["ExtractionIntervalSeconds"];
+                if (!int.TryParse(intervalStr, out extractionIntervalSeconds) || extractionIntervalSeconds <= 0)
                 {
                     // Default to 60 minutes if parsing fails or value is invalid
-                    extractionIntervalMinutes = 60;
-                    LogInfo("ExtractionIntervalMinutes not specified or invalid in app.config. Defaulting to 60 minutes");
+                    extractionIntervalSeconds = 60;
+                    LogInfo("ExtractionIntervalSeconds not specified or invalid in app.config. Defaulting to 60 minutes");
                 }
                 else
                 {
-                    LogInfo($"Using extraction interval of {extractionIntervalMinutes} minutes from app.config");
+                    LogInfo($"Using extraction interval of {extractionIntervalSeconds} minutes from app.config");
                 }
 
                 // Get the initial delay setting (in milliseconds)
