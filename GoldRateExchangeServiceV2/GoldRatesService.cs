@@ -192,7 +192,7 @@ namespace GoldRatesExtractor
         private void SetupTimer()
         {
             extractionTimer = new Timer();
-            extractionTimer.Interval = extractionIntervalMinutes * 60 * 1000; // Convert minutes to milliseconds
+            extractionTimer.Interval = extractionIntervalMinutes * 1000; // Convert seconds to milliseconds
             extractionTimer.Elapsed += async (sender, e) =>
             {
                 extractionTimer.Enabled = false; // Disable timer while running extraction
