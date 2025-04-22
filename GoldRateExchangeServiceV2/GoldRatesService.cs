@@ -86,6 +86,8 @@ namespace GoldRatesExtractor
                 // for script execution
                 FindNodeJs();
 
+
+
                 // Make sure the script exists
                 if (!File.Exists(scriptPath))
                 {
@@ -119,6 +121,415 @@ namespace GoldRatesExtractor
                 LogError($"Error in OnStart: {ex.Message}");
                 LogError($"Stack trace: {ex.StackTrace}");
             }
+        }
+
+        private async Task<bool> DownloadMKSPampHtmlAsync(string url, string outputFilePath)
+        {
+            LogInfo($"Downloading MKSPamp HTML from {url} to {outputFilePath}");
+
+            try
+            {
+                // Make sure the directory exists
+                string directory = Path.GetDirectoryName(outputFilePath);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                    LogInfo($"Created directory: {directory}");
+                }
+
+                // Create a puppeteer-based downloader script
+                string puppeteerScriptPath = Path.Combine(Path.GetDirectoryName(scriptPath), "puppeteer_download.js");
+
+                // Check if the puppeteer script already exists
+                if (!File.Exists(puppeteerScriptPath))
+                {
+                    // Write the puppeteer download script
+                    string scriptContent = @"
+const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
+
+// Get command line arguments
+const url = process.argv[2];
+const outputFilePath = process.argv[3];
+
+// Ensure directory exists
+const dirPath = path.dirname(outputFilePath);
+if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+    console.error(`Created directory: ${dirPath}`);
+}
+
+async function downloadPage() {
+    console.error(`Downloading page from ${url} with puppeteer`);
+    
+    // Launch browser
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
+        ]
+    });
+    
+    try {
+        // Open new page
+        const page = await browser.newPage();
+        
+        // Set viewport
+        await page.setViewport({ width: 1366, height: 768 });
+        
+        // Set user agent
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        
+        // Set extra HTTP headers
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        });
+        
+        // Navigate to page
+        console.error(`Navigating to ${url}`);
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        
+        // Wait extra time for any dynamic content
+        console.error('Waiting for content to load...');
+        await page.waitForTimeout(5000);
+        
+        // Take a screenshot for debugging
+        const screenshotPath = path.join(dirPath, 'debug_screenshot.png');
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.error(`Screenshot saved to ${screenshotPath}`);
+        
+        // Check if we can find the tables we're looking for
+        const tablesCheck = await page.evaluate(() => {
+            const tables = document.querySelectorAll('table');
+            let foundGoldTable = false;
+            
+            for (const table of tables) {
+                if (table.textContent.includes('WE BUY') && table.textContent.includes('WE SELL')) {
+                    foundGoldTable = true;
+                    break;
+                }
+            }
+            
+            return {
+                tableCount: tables.length,
+                foundGoldTable: foundGoldTable
+            };
+        });
+        
+        console.error(`Found ${tablesCheck.tableCount} tables on the page`);
+        console.error(`Gold rates table found: ${tablesCheck.foundGoldTable ? 'Yes' : 'No'}`);
+        
+        // Get the page content
+        const html = await page.content();
+        
+        // Save HTML to file
+        fs.writeFileSync(outputFilePath, html);
+        console.error(`HTML content saved to ${outputFilePath}`);
+        
+        // Return success
+        console.log(JSON.stringify({ 
+            success: true, 
+            filePath: outputFilePath,
+            tableCount: tablesCheck.tableCount,
+            foundGoldTable: tablesCheck.foundGoldTable
+        }));
+        
+    } catch (error) {
+        console.error(`Error downloading page: ${error.message}`);
+        console.log(JSON.stringify({ success: false, error: error.message }));
+    } finally {
+        await browser.close();
+    }
+}
+
+// Run the download function
+downloadPage().catch(error => {
+    console.error(`Fatal error: ${error.message}`);
+    console.log(JSON.stringify({ success: false, error: error.message }));
+    process.exit(1);
+});";
+
+                    File.WriteAllText(puppeteerScriptPath, scriptContent);
+                    LogInfo($"Created puppeteer download script at: {puppeteerScriptPath}");
+                }
+
+                // Launch Node.js process to run the puppeteer script
+                using (var process = new Process())
+                {
+                    process.StartInfo.FileName = nodeJsPath;
+                    process.StartInfo.Arguments = $"\"{puppeteerScriptPath}\" \"{url}\" \"{outputFilePath}\"";
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
+                    process.StartInfo.CreateNoWindow = true;
+                    process.StartInfo.WorkingDirectory = Path.GetDirectoryName(scriptPath); // Set working directory to ensure dependencies are found
+
+                    var outputData = new List<string>();
+                    var errorData = new List<string>();
+
+                    process.OutputDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                            outputData.Add(e.Data);
+                    };
+
+                    process.ErrorDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            errorData.Add(e.Data);
+                            LogInfo($"Script debug: {e.Data}");
+                        }
+                    };
+
+                    LogInfo($"Running puppeteer download script: {process.StartInfo.Arguments}");
+
+                    process.Start();
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+
+                    // Wait for process to finish with a timeout (longer for puppeteer)
+                    await Task.Run(() =>
+                    {
+                        if (!process.WaitForExit(60000)) // 60 second timeout for puppeteer
+                        {
+                            LogError("Puppeteer script took too long to execute. Killing process.");
+                            try { process.Kill(); } catch { }
+                        }
+                    });
+
+                    // Process the output
+                    if (outputData.Count > 0)
+                    {
+                        string jsonOutput = string.Join("\n", outputData);
+                        try
+                        {
+                            // Parse the JSON output to get the download result
+                            var result = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonOutput);
+
+                            if (result != null && result.ContainsKey("success") && (bool)result["success"])
+                            {
+                                LogInfo("MKSPamp HTML downloaded successfully");
+
+                                // Log table information if available
+                                if (result.ContainsKey("tableCount"))
+                                    LogInfo($"Tables found in downloaded HTML: {result["tableCount"]}");
+
+                                if (result.ContainsKey("foundGoldTable"))
+                                    LogInfo($"Gold rates table found: {result["foundGoldTable"]}");
+
+                                return true;
+                            }
+                            else
+                            {
+                                string errorMsg = result != null && result.ContainsKey("error")
+                                    ? result["error"].ToString()
+                                    : "Unknown error";
+                                LogError($"Failed to download MKSPamp HTML: {errorMsg}");
+                                return false;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError($"Error parsing script output: {ex.Message}");
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        LogError("No output produced by puppeteer script.");
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error running puppeteer download script: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<DataTable> ExtractMKSPampDataFromFileAsync(string filePath)
+{
+    // Get the URL for MKSPamp
+    string url = ConfigurationManager.AppSettings["UrlOption3"];
+    
+    // First, download the HTML file
+    bool downloadSuccess = await DownloadMKSPampHtmlAsync(url, filePath);
+    
+    if (!downloadSuccess)
+    {
+        LogError("Failed to download MKSPamp HTML. Attempting to use existing file if available.");
+        
+        // Check if the file exists at all
+        if (!File.Exists(filePath))
+        {
+            LogError($"MKSPamp HTML file not found at: {filePath}");
+            return new DataTable(); // Return empty table
+        }
+        
+        // If file exists but is too old, log a warning
+        var fileInfo = new FileInfo(filePath);
+        var lastModified = fileInfo.LastWriteTime;
+        var fileAge = DateTime.Now - lastModified;
+        
+        if (fileAge.TotalHours > 24)
+        {
+            LogError($"WARNING: MKSPamp HTML file is {fileAge.TotalHours:F1} hours old. Consider updating the file.");
+        }
+    }
+    
+    // Continue with the existing extraction logic...
+    LogInfo($"Beginning MKSPamp data extraction from HTML file: {filePath}");
+
+    DataTable extractedData = new DataTable();
+    extractedData.Columns.Add("DetailName", typeof(string));
+    extractedData.Columns.Add("WeBuy", typeof(decimal));
+    extractedData.Columns.Add("WeSell", typeof(decimal));
+
+    try
+    {
+        // Launch Node.js process to run the script with the file path
+        using (var process = new Process())
+        {
+            process.StartInfo.FileName = nodeJsPath;
+            // Pass 'mkspamp_file' as the site type and the file path as the URL
+            process.StartInfo.Arguments = $"\"{scriptPath}\" mkspamp_file \"{filePath}\"";
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.RedirectStandardError = true;
+            process.StartInfo.CreateNoWindow = true;
+            process.StartInfo.WorkingDirectory = Path.GetDirectoryName(scriptPath);
+
+            var outputData = new List<string>();
+            var errorData = new List<string>();
+            ScraperError structuredError = null;
+
+            process.OutputDataReceived += (sender, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                    outputData.Add(e.Data);
+            };
+
+            process.ErrorDataReceived += (sender, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    errorData.Add(e.Data);
+
+                    // Look for structured error messages from the script
+                    if (e.Data.StartsWith("ERROR_JSON: "))
+                    {
+                        try
+                        {
+                            string errorJson = e.Data.Substring("ERROR_JSON: ".Length);
+                            structuredError = JsonConvert.DeserializeObject<ScraperError>(errorJson);
+                            LogError($"Structured error from script: {structuredError.ErrorType} - {structuredError.Message}");
+                        }
+                        catch (Exception jsonEx)
+                        {
+                            LogError($"Failed to parse error JSON: {jsonEx.Message}");
+                        }
+                    }
+                }
+            };
+
+            LogInfo($"Running Node.js script for MKSPamp file extraction: {process.StartInfo.Arguments}");
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            // Wait for process to finish with a timeout
+            await Task.Run(() =>
+            {
+                if (!process.WaitForExit(scriptTimeoutMs))
+                {
+                    LogError("Node.js script took too long to execute. Killing process.");
+                    try { process.Kill(); } catch { }
+                }
+            });
+
+            // Log any errors or debug info
+            if (errorData.Count > 0)
+            {
+                foreach (var error in errorData)
+                {
+                    if (!error.StartsWith("ERROR_JSON: "))
+                    {
+                        LogInfo($"Script debug: {error}");
+                    }
+                }
+            }
+
+            // Process the output
+            if (outputData.Count > 0)
+            {
+                string jsonOutput = string.Join("\n", outputData);
+                try
+                {
+                    // Parse the JSON output
+                    var goldRates = JsonConvert.DeserializeObject<List<GoldRate>>(jsonOutput);
+
+                    if (goldRates != null && goldRates.Count > 0)
+                    {
+                        foreach (var rate in goldRates)
+                        {
+                            if (rate.WeSell.HasValue)
+                            {
+                                extractedData.Rows.Add(rate.DetailName, rate.WeBuy, rate.WeSell);
+                            }
+                            else
+                            {
+                                extractedData.Rows.Add(rate.DetailName, rate.WeBuy, DBNull.Value);
+                            }
+                            LogInfo($"Extracted from file: {rate.DetailName}, Buy: {rate.WeBuy}, Sell: {rate.WeSell?.ToString() ?? "N/A"}");
+                        }
+                    }
+                    else
+                    {
+                        LogError("No gold rates found in script output.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError($"Error parsing script output: {ex.Message}");
+                    LogError($"Script output: {jsonOutput}");
+                }
+            }
+            else
+            {
+                LogError("No output produced by Node.js script.");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        LogError($"Error running file extraction: {ex.Message}");
+    }
+
+    return extractedData;
+}
+
+
+        private string GetRelativeHtmlFilePath()
+        {
+            // Create an HTML directory in the application base directory
+            string htmlDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "HTML");
+            if (!Directory.Exists(htmlDirectory))
+            {
+                Directory.CreateDirectory(htmlDirectory);
+            }
+
+            // Return the path for the MKSPamp HTML file
+            return Path.Combine(htmlDirectory, $"MKSPamp_{DateTime.Now:yyyyMMdd}.html");
         }
 
         private void FindNodeJs()
@@ -617,7 +1028,7 @@ exit %ERRORLEVEL%";
                         LogError($"Failed to extract data from {currentCompanyName}");
                     }
                 }
-                else
+                else if (websiteOption == 2)
                 {
                     url = ConfigurationManager.AppSettings["UrlOption2"];
                     currentCompanyName = ConfigurationManager.AppSettings["CompanyName2"];
@@ -636,6 +1047,30 @@ exit %ERRORLEVEL%";
                         LogError($"Failed to extract data from {currentCompanyName}");
                     }
                 }
+                else if (websiteOption == 3)
+                {
+                    url = ConfigurationManager.AppSettings["UrlOption3"];
+                    currentCompanyName = ConfigurationManager.AppSettings["CompanyName3"];
+
+                    // Use the relative path for the HTML file
+                    string htmlFilePath = GetRelativeHtmlFilePath();
+
+                    LogInfo($"Using Option 3: {currentCompanyName} at {url}");
+                    LogInfo($"HTML will be saved to: {htmlFilePath}");
+
+                    // Extract data from MKSPamp HTML file (which will be downloaded first)
+                    DataTable extractedData = await ExtractMKSPampDataFromFileAsync(htmlFilePath);
+
+                    if (extractedData.Rows.Count > 0)
+                    {
+                        await SaveMKSPampDataAsync(extractedData);
+                        LogInfo($"Successfully extracted and saved data from {currentCompanyName}");
+                    }
+                    else
+                    {
+                        LogError($"Failed to extract data from {currentCompanyName}");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -646,7 +1081,7 @@ exit %ERRORLEVEL%";
 
         private void LogRecommendationBasedOnError(ScraperError error, int websiteOption)
         {
-            string websiteName = websiteOption == 1 ? "TTTBullion" : "MSGold";
+            string websiteName = websiteOption == 1 ? "TTTBullion" : (websiteOption == 2 ? "MSGold" : "MKSPamp");
             string recommendationHeader = $"RECOMMENDATION FOR {websiteName}:";
 
             switch (error.ErrorType)
@@ -719,6 +1154,196 @@ exit %ERRORLEVEL%";
             }
         }
 
+        private async Task<DataTable> ExtractMKSPampDataAsync(string url)
+        {
+            LogInfo("Beginning MKSPamp data extraction using Node.js script");
+
+            DataTable extractedData = new DataTable();
+            extractedData.Columns.Add("DetailName", typeof(string));
+            extractedData.Columns.Add("WeBuy", typeof(decimal));
+            extractedData.Columns.Add("WeSell", typeof(decimal));
+
+            try
+            {
+                // Launch Node.js process to run the script
+                using (var process = new Process())
+                {
+                    process.StartInfo.FileName = nodeJsPath;
+                    process.StartInfo.Arguments = $"\"{scriptPath}\" mkspamp \"{url}\" {navigationTimeoutMs} 10000";
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
+                    process.StartInfo.CreateNoWindow = true;
+                    process.StartInfo.WorkingDirectory = Path.GetDirectoryName(scriptPath);
+
+                    var outputData = new List<string>();
+                    var errorData = new List<string>();
+                    ScraperError structuredError = null;
+
+                    process.OutputDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                            outputData.Add(e.Data);
+                    };
+
+                    process.ErrorDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            errorData.Add(e.Data);
+
+                            // Look for structured error messages from the script
+                            if (e.Data.StartsWith("ERROR_JSON: "))
+                            {
+                                try
+                                {
+                                    string errorJson = e.Data.Substring("ERROR_JSON: ".Length);
+                                    structuredError = JsonConvert.DeserializeObject<ScraperError>(errorJson);
+                                    LogError($"Structured error from script: {structuredError.ErrorType} - {structuredError.Message}");
+                                }
+                                catch (Exception jsonEx)
+                                {
+                                    LogError($"Failed to parse error JSON: {jsonEx.Message}");
+                                }
+                            }
+                        }
+                    };
+
+                    LogInfo($"Running Node.js script for MKSPamp: {process.StartInfo.Arguments}");
+                    LogInfo($"Working directory: {process.StartInfo.WorkingDirectory}");
+
+                    process.Start();
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+
+                    // Wait for process to finish with a timeout
+                    await Task.Run(() =>
+                    {
+                        if (!process.WaitForExit(scriptTimeoutMs))
+                        {
+                            LogError("Node.js script took too long to execute. Killing process.");
+                            try { process.Kill(); } catch { }
+                        }
+                    });
+
+                    // Log any errors or debug info
+                    if (errorData.Count > 0)
+                    {
+                        foreach (var error in errorData)
+                        {
+                            // Don't log the structured error JSON again
+                            if (!error.StartsWith("ERROR_JSON: "))
+                            {
+                                LogInfo($"Script debug: {error}");
+                            }
+                        }
+                    }
+
+                    // Process the output
+                    if (outputData.Count > 0)
+                    {
+                        string jsonOutput = string.Join("\n", outputData);
+                        try
+                        {
+                            // Parse the JSON output
+                            var goldRates = JsonConvert.DeserializeObject<List<GoldRate>>(jsonOutput);
+
+                            if (goldRates != null && goldRates.Count > 0)
+                            {
+                                foreach (var rate in goldRates)
+                                {
+                                    extractedData.Rows.Add(rate.DetailName, rate.WeBuy, rate.WeSell);
+                                    LogInfo($"Extracted from external script: {rate.DetailName}, Buy: {rate.WeBuy}, Sell: {rate.WeSell}");
+                                }
+                            }
+                            else
+                            {
+                                LogError("No gold rates found in script output.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError($"Error parsing script output: {ex.Message}");
+                            LogError($"Script output: {jsonOutput}");
+                        }
+                    }
+                    else
+                    {
+                        LogError("No output produced by Node.js script.");
+
+                        // Log specific recommendations based on the error
+                        if (structuredError != null)
+                        {
+                            LogRecommendationBasedOnError(structuredError, 3); // 3 is the website option for MKSPamp
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error running external script: {ex.Message}");
+            }
+
+            return extractedData;
+        }
+        private void EnsureMKSPampDirectory()
+        {
+            string htmlDirectory = Path.GetDirectoryName(ConfigurationManager.AppSettings["MKSPampHtmlFilePath"]);
+
+            if (!Directory.Exists(htmlDirectory))
+            {
+                LogInfo($"Creating directory for MKSPamp HTML files: {htmlDirectory}");
+                Directory.CreateDirectory(htmlDirectory);
+            }
+        }
+
+        
+        private async Task SaveMKSPampDataAsync(DataTable data)
+        {
+            LogInfo("Saving MKSPamp data to database...");
+
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(connectionString))
+                {
+                    await connection.OpenAsync();
+                    LogInfo("Connected to database.");
+
+                    int rowsSaved = 0;
+
+                    foreach (DataRow row in data.Rows)
+                    {
+                        string detailName = row["DetailName"].ToString();
+                        decimal weBuy = (decimal)row["WeBuy"];
+                        decimal? weSell = row["WeSell"] != DBNull.Value ? (decimal?)row["WeSell"] : null;
+
+                        // Use the stored procedure
+                        using (SqlCommand command = new SqlCommand("sp_goldRates_upsert", connection))
+                        {
+                            command.CommandType = CommandType.StoredProcedure;
+
+                            // Add parameters to call the stored procedure
+                            command.Parameters.AddWithValue("@CompanyName", currentCompanyName);
+                            command.Parameters.AddWithValue("@TableType", "OurRates");
+                            command.Parameters.AddWithValue("@DetailName", detailName);
+                            command.Parameters.AddWithValue("@WeBuy", weBuy);
+                            command.Parameters.AddWithValue("@WeSell", weSell.HasValue ? (object)weSell.Value : DBNull.Value);
+
+                            await command.ExecuteNonQueryAsync();
+                            rowsSaved++;
+                            LogInfo($"Updated/Saved gold rate for {detailName}");
+                        }
+                    }
+
+                    LogInfo($"Successfully saved {rowsSaved} gold rates records for MKSPamp.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Database error: {ex.Message}");
+                throw;
+            }
+        }
 
         private async Task<DataTable> ExtractTTTBullionDataAsync(string url)
         {
@@ -1191,7 +1816,7 @@ exit %ERRORLEVEL%";
     {
         public string DetailName { get; set; }
         public decimal WeBuy { get; set; }
-        public decimal WeSell { get; set; }
+        public decimal? WeSell { get; set; }
     }
 
     public class MSGoldData

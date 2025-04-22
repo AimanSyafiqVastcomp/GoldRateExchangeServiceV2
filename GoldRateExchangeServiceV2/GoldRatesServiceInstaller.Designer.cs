@@ -36,6 +36,7 @@
             this.serviceProcessInstaller.Account = System.ServiceProcess.ServiceAccount.LocalSystem;
             this.serviceProcessInstaller.Password = null;
             this.serviceProcessInstaller.Username = null;
+            this.serviceProcessInstaller.AfterInstall += new System.Configuration.Install.InstallEventHandler(this.serviceProcessInstaller_AfterInstall);
             // 
             // serviceInstaller
             // 
@@ -43,12 +44,14 @@
             this.serviceInstaller.DisplayName = "Gold Rates Extraction Service";
             this.serviceInstaller.ServiceName = "GoldRatesExtractionService";
             this.serviceInstaller.StartType = System.ServiceProcess.ServiceStartMode.Automatic;
+            this.serviceInstaller.AfterInstall += new System.Configuration.Install.InstallEventHandler(this.serviceInstaller_AfterInstall);
             // 
             // GoldRatesServiceInstaller
             // 
             this.Installers.AddRange(new System.Configuration.Install.Installer[] {
-                this.serviceProcessInstaller,
-                this.serviceInstaller});
+            this.serviceProcessInstaller,
+            this.serviceInstaller});
+
         }
 
         #endregion

@@ -161,6 +161,9 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="puppeteer_download.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="goldExtractor.js">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>

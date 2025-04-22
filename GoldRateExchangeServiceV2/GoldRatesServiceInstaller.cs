@@ -11,5 +11,15 @@ namespace GoldRatesExtractor
         {
             InitializeComponent(); 
         }
+
+        private void serviceInstaller_AfterInstall(object sender, InstallEventArgs e)
+        {
+
+        }
+
+        private void serviceProcessInstaller_AfterInstall(object sender, InstallEventArgs e)
+        {
+
+        }
     }
 }
