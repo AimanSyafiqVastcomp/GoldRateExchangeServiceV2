@@ -782,7 +782,7 @@ async function extractMKSPampFromFile(filePath) {
     }
 }
 
-// Check command line arguments
+// Check command line argument
 if (process.argv.length < 4) {
     console.error('Usage: node script.js [tttbullion|msgold|mkspamp|mkspamp_file|mkspamp_download] [url/filepath]');
     process.exit(1);

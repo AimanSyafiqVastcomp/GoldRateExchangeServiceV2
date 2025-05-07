@@ -129,7 +129,7 @@ namespace GoldRatesExtractor
 
             try
             {
-                // Make sure the directory exists
+                // Making sure the directory exists
                 string directory = Path.GetDirectoryName(outputFilePath);
                 if (!Directory.Exists(directory))
                 {
